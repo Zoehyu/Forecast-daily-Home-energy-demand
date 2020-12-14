@@ -1,0 +1,75 @@
+---
+title: "Fourier"
+author: "Bryce Chamberlain"
+output: html_document
+---
+
+```{r message = FALSE, warning = FALSE}
+require(easyr)
+require(dplyr)
+require(glue)
+require(forecast)
+require(vars)
+require(TSA)
+require(tseries)
+```
+
+```{r}
+# read data and fit the periodogram.
+dt = read.any('../daily.csv')
+t = TSA::periodogram(dt$y)
+plot(t)
+```
+```{r}
+# explore top frequencies.
+data.frame(
+  freq = t$freq,
+  spec = t$spec
+) %>% 
+  mutate(period = 1/freq) %>%
+  arrange(desc(spec)) %>%
+  head(10)
+```
+
+* The most significant period is close to 7 days as expected, but many other periods also have significant magnitute.
+
+```{r}
+# fit a model.
+m = Arima(          
+  ts(dt$y, frequency = 7),
+  xreg = fourier(x = ts(dt$y, frequency = 7), K = 3)
+)
+tsdisplay(m$residuals)
+```
+
+```{r}
+# KPSS Test for LEVEL stationarity (not variance?)
+# null hypothesis (large p value): process is stationary
+# also tends to reject null hypothesis too often (per https://www.statisticshowto.com/kpss-test/)
+print(tseries::kpss.test(m$residuals))
+if((pval <- tseries::kpss.test(m$residuals)$p.value) < .05){
+  print(glue('p-value {round(pval, 4)}: process is NOT stationary'))
+} else {
+  print(glue('p-value {round(pval, 4)}: process is stationary'))
+}
+rm(pval)
+```
+
+```{r}
+# Augmented Dickey Fuller Test
+# null hypothesis (large p value): process is non-stationary
+# always prints alternative hypothesis, whether stationary or non-stationary.
+# has a relatively high Type I error (incorrectly reject null hypothesis) rate (per https://www.statisticshowto.com/adf-augmented-dickey-fuller-test)
+print(tseries::adf.test(m$residuals))
+if((pval <- tseries::adf.test(m$residuals)$p.value) < .05){
+  print(glue('p-value {round(pval, 4)}: process is stationary'))
+} else {
+  print(glue('p-value {round(pval, 4)}: process is NOT stationary'))
+}
+rm(pval)
+```
+
+```{r}
+# explore forecast.
+plot(forecast(m, xreg = fourier(x = ts(dt$y, frequency = 7), K = 3, h = 14), h = 14))
+```
